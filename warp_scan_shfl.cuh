@@ -5,8 +5,8 @@
  * @brief 使用warp完成一个block的前缀和计算。
  */
 #include "defines.cuh"
-#ifndef CUBSCAN_WARP_SCAB_SHFL_CUH
-#define CUBSCAN_WARP_SCAB_SHFL_CUH
+#ifndef CUBSCAN_WARN_SCAB_SHFL_CUH
+#define CUBSCAN_WARN_SCAB_SHFL_CUH
 namespace scan {
 
 /**
@@ -368,4 +368,4 @@ namespace scan {
 }
 
 
-#endif //CUBSCAN_WARP_SCAB_SHFL_CUH
+#endif //CUBSCAN_WARN_SCAB_SHFL_CUH
