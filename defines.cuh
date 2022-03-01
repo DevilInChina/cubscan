@@ -36,13 +36,23 @@
 
 namespace scan {
     /**
- * \brief Returns the row-major linear thread identifier for a multidimensional thread block
- */
+     * \brief Returns the row-major linear thread identifier for a multidimensional thread block
+     */
     __device__ __forceinline__ int RowMajorTid(int block_dim_x, int block_dim_y, int block_dim_z) {
         return ((block_dim_z == 1) ? 0 : (threadIdx.z * block_dim_x * block_dim_y)) +
                ((block_dim_y == 1) ? 0 : (threadIdx.y * block_dim_x)) +
                threadIdx.x;
     }
+
+    /**
+     * \brief Allows for the treatment of an integral constant as a type at compile-time (e.g., to achieve static call dispatch based on constant integral values)
+     */
+    template<int A>
+    struct Int2Type {
+        enum {
+            VALUE = A
+        };
+    };
 
 }
 

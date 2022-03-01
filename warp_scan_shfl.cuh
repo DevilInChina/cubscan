@@ -347,7 +347,8 @@ namespace scan {
 
         __device__ __forceinline__ void InclusiveScan(
                 T input,              ///< [in] Calling thread's input item.
-                T &inclusive_output  ///< [out] Calling thread's output item.  May be aliased with \p input.
+                T &inclusive_output,  ///< [out] Calling thread's output item.  May be aliased with \p input.
+                T &exclusive_output
         )            ///< [in] Binary scan operator
         {
             inclusive_output = input;
@@ -363,6 +364,7 @@ namespace scan {
                         segment_first_lane,
                         (1 << STEP));
             }
+            exclusive_output = inclusive_output - input;
         }
     };
 }
