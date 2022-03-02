@@ -33,7 +33,7 @@ namespace scan {
         unsigned int lane_id;
 
         __device__ __forceinline__ BlockScanWarpScans() :
-                linear_tid(RowMajorTid(BLOCK_DIM_X, BLOCK_DIM_Y, BLOCK_DIM_Z)),
+                linear_tid(origin_cub::RowMajorTid(BLOCK_DIM_X, BLOCK_DIM_Y, BLOCK_DIM_Z)),
                 warp_id((WARPS == 1) ? 0 : linear_tid / WARP_THREADS), lane_id(LaneId()) {}
 
         template<int WARP>

@@ -1,5 +1,5 @@
 #include <iostream>
-#include "block_scan.cuh"
+#include "single_pass_scan_operators.cuh"
 #include <thrust/host_vector.h>
 #include <thrust/device_vector.h>
 #include <iostream>
