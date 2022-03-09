@@ -9,36 +9,7 @@
 #define CUBSCAN_WARN_SCAB_SHFL_CUH
 namespace scan {
 
-/**
- * \brief Statically determine log2(N), rounded up.
- *
- * For example:
- *     Log2<8>::VALUE   // 3
- *     Log2<3>::VALUE   // 2
- */
-    template<int N, int CURRENT_VAL = N, int COUNT = 0>
-    struct Log2 {
-        /// Static logarithm value
-        enum {
-            VALUE = Log2<N, (CURRENT_VAL >> 1), COUNT + 1>::VALUE
-        };         // Inductive case
-    };
 
-
-    template<int N, int COUNT>
-    struct Log2<N, 0, COUNT> {
-        enum {
-            VALUE = (1 << (COUNT - 1) < N) ?                                  // Base case
-                    COUNT :
-                    COUNT - 1
-        };
-    };
-    template<int N>
-    struct PowerOfTwo {
-        enum {
-            VALUE = ((N & (N - 1)) == 0)
-        };
-    };
 
     template<int LOGICAL_WARP_THREADS,
             int PTX_ARCH = CUB_PTX_ARCH>
