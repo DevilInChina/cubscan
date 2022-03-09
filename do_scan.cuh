@@ -133,13 +133,39 @@ namespace scan {
     __global__ void
     scan_do_kernel(void *temp_storage, T *d_in, T *d_out, int num_items, int num_tiles, size_t temp_size) {
         int item_idx = blockDim.x * blockIdx.x + threadIdx.x;
+        T d_inputs[SCAN_ITEM_PER_BLOCK];
+        int begin_idx = SCAN_ITEM_PER_BLOCK * item_idx;
+#pragma unroll
+        for (int i = 0; i < SCAN_ITEM_PER_BLOCK; ++i) {
+            if (i + begin_idx < num_items) {
+                d_inputs[i] = d_in[begin_idx + i];
+            } else {
+                d_inputs[i] = 0;
+            }
+        }
 
-        T d_input = item_idx < num_items ? d_in[item_idx] : 0;
-        T d_output = 0;
+        T d_input = 0, d_output;
+#pragma unroll
+        for (int i = 0; i < SCAN_ITEM_PER_BLOCK; ++i) {
+            d_input += d_inputs[i];
+        }
+
         scan_block<T> ss(temp_storage, num_tiles, temp_size);
         ss.ExclusiveScan(d_input, d_output);
-        if (item_idx < num_items) {
-            d_out[item_idx] = d_output;
+
+
+        d_input = d_inputs[0];
+        d_inputs[0] = d_output;
+#pragma unroll
+        for (int i = 1; i < SCAN_ITEM_PER_BLOCK; ++i) {
+            T new_val = d_inputs[i];
+            d_inputs[i] = d_input + d_inputs[i - 1];
+            d_input = new_val;
+        }
+#pragma unroll
+        for (int i = 0; i < SCAN_ITEM_PER_BLOCK; ++i) {
+            if (i + begin_idx < num_items)
+                d_out[i + begin_idx] = d_inputs[i];
         }
     }
 

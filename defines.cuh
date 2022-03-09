@@ -49,7 +49,8 @@
 
 namespace scan {
 #define SCAN_BLOCK_SIZE 128
-#define SCAN_TILE_SIZE (SCAN_BLOCK_SIZE)
+#define SCAN_ITEM_PER_BLOCK 12
+#define SCAN_TILE_SIZE (SCAN_BLOCK_SIZE*SCAN_ITEM_PER_BLOCK)
 #define SCAN_TILE_STATUS_PADDING 32
 #define SCAN_WARP_SIZE 32
     enum ScanTileStatus {

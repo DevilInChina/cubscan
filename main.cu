@@ -41,6 +41,11 @@ int main(int argc,char **argv) {
     cudaDeviceSynchronize();
     h_vec_flag = d_vec_res;
     cudaDeviceSynchronize();
-
+    int cnt =0;
+    for(int i = 0 ; i < test_num_items ; ++i){
+        if(h_vec_flag[i]!=i && ++cnt < 20){
+            cout<<cnt<<endl;
+        }
+    }
     return 0;
 }
