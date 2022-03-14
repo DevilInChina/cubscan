@@ -9,6 +9,7 @@
 
 using namespace std;
 #define test_type int
+#define test_times 1000
 int main(int argc,char **argv) {
     int test_num_items = atoi(argv[1]);      // e.g., 7
     thrust::host_vector<test_type> h_vec(test_num_items);
@@ -30,14 +31,14 @@ int main(int argc,char **argv) {
     cudaDeviceSynchronize();
     struct timeval t1, t2;
     gettimeofday(&t1, nullptr);
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < test_times; ++i) {
         scan::ExclusiveScan(temp, d_vec.data().get(), d_vec_res.data().get(), test_num_items, cudaStream);
     }
     cudaStreamSynchronize(cudaStream);
     gettimeofday(&t2, nullptr);
     thrust::host_vector<test_type> h_vec_res(test_num_items);
-    double time = 1000 * (t2.tv_sec - t2.tv_sec) + (t2.tv_usec - t1.tv_usec) / 1000.0;
-    cout << test_num_items * sizeof(test_type) * 10 / (time *1e6) << endl;
+    double time = 1000 * (t2.tv_sec - t1.tv_sec) + (t2.tv_usec - t1.tv_usec) / 1000.0;
+    cout << test_num_items * sizeof(test_type) * test_times / (time *1e6) << endl;
     cudaDeviceSynchronize();
     h_vec_flag = d_vec_res;
     cudaDeviceSynchronize();

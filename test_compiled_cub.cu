@@ -2,7 +2,7 @@
 // Created by yxgao on 2022/3/9.
 //
 
-#include <cub/cub.cuh>   // or equivalently <cub/device/device_scan.cuh>
+#include "cub_full/cub/cub.cuh"   // or equivalently <cub/device/device_scan.cuh>
 #include <thrust/host_vector.h>
 #include <thrust/device_vector.h>
 #include <sys/time.h>
@@ -28,7 +28,7 @@ int main(int argc ,char **argv) {
 // Determine temporary device storage requirements
     void *d_temp_storage = NULL;
     size_t temp_storage_bytes = 0;
-    cub::DeviceScan::ExclusiveSum(d_temp_storage, temp_storage_bytes, d_in, d_out, test_num_items);
+    cub_new_compiled::DeviceScan::ExclusiveSum(d_temp_storage, temp_storage_bytes, d_in, d_out, test_num_items);
 // Allocate temporary storage
     cudaMalloc(&d_temp_storage, temp_storage_bytes);
 // Run exclusive prefix sum
@@ -36,7 +36,7 @@ int main(int argc ,char **argv) {
     struct timeval t1, t2;
     gettimeofday(&t1, nullptr);
     for (int i = 0; i < test_times; ++i) {
-        cub::DeviceScan::ExclusiveSum(d_temp_storage, temp_storage_bytes, d_in, d_out, test_num_items);
+        cub_new_compiled::DeviceScan::ExclusiveSum(d_temp_storage, temp_storage_bytes, d_in, d_out, test_num_items);
     }
     cudaDeviceSynchronize();
     gettimeofday(&t2, nullptr);
