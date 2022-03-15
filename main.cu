@@ -47,7 +47,7 @@ int main(int argc, char **argv) {
     int cnt = 0;
     for (int i = 0; i < test_num_items; ++i) {
         if (h_vec_flag[i] != i && ++cnt < 20) {
-            cout << cnt << endl;
+            cout << h_vec_flag[i] << " " << i << endl;
         }
     }
     return 0;
