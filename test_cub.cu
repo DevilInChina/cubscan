@@ -11,7 +11,8 @@
 #define test_type int
 #define test_times 1000
 using namespace std;
-int main(int argc ,char **argv) {
+
+int main(int argc, char **argv) {
     int test_num_items = atoi(argv[1]);      // e.g., 7
     int *d_in;          // e.g., [8, 6, 7, 5, 3, 0, 9]
     int *d_out;         // e.g., [ ,  ,  ,  ,  ,  ,  ]
@@ -41,6 +42,7 @@ int main(int argc ,char **argv) {
     cudaDeviceSynchronize();
     gettimeofday(&t2, nullptr);
     double time = 1000 * (t2.tv_sec - t1.tv_sec) + (t2.tv_usec - t1.tv_usec) / 1000.0;
-    cout << test_num_items * sizeof(test_type) * test_times / (time *1e6) << endl;
+    cout << test_num_items * sizeof(test_type) * test_times / (time * 1e6) << endl;
+    cout << time / test_times << endl;
 // d_out s<-- [0, 8, 14, 21, 26, 29, 29]
 }

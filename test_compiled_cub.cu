@@ -42,5 +42,6 @@ int main(int argc ,char **argv) {
     gettimeofday(&t2, nullptr);
     double time = 1000 * (t2.tv_sec - t1.tv_sec) + (t2.tv_usec - t1.tv_usec) / 1000.0;
     cout << test_num_items * sizeof(test_type) * test_times / (time *1e6) << endl;
+    cout << time / test_times << endl;
 // d_out s<-- [0, 8, 14, 21, 26, 29, 29]
 }

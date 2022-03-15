@@ -276,6 +276,7 @@ struct DispatchScan:
     CUB_RUNTIME_FUNCTION __host__  __forceinline__
     cudaError_t Invoke(InitKernel init_kernel, ScanKernel scan_kernel)
     {
+#define CUB_RUNTIME_ENABLED
 #ifndef CUB_RUNTIME_ENABLED
 
         (void)init_kernel;

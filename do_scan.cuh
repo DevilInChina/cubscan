@@ -17,7 +17,12 @@ namespace scan {
         size_t ret;
         int num_tiles = (num_items + SCAN_TILE_SIZE - 1) / SCAN_TILE_SIZE;
         ScanTileStatusT::AllocationSize(num_tiles, ret);
-        return ret;
+        size_t temp_storage_bytes;
+
+        size_t  allocation_sizes[1] = {ret};
+        void* allocations[1] = {};
+        CUB_NS_QUALIFIER::AliasTemporaries(nullptr, temp_storage_bytes, allocations, allocation_sizes);
+        return temp_storage_bytes;
     }
 
     template<typename T, typename ScanTileStatusT = ScanTileState<T>>
@@ -170,14 +175,19 @@ namespace scan {
     }
 
 
-    template<typename T>
-    void ExclusiveScan(void *temp_storage, T *d_in, T *d_out, int num_items, cudaStream_t cudaStream) {
+    template<typename T, typename ScanTileStatusT = ScanTileState<T> >
+    void ExclusiveScan(void *d_temp_storage, T *d_in, T *d_out, int num_items, cudaStream_t cudaStream) {
         unsigned int num_tiles = (num_items + SCAN_TILE_SIZE - 1) / SCAN_TILE_SIZE;
         unsigned int init_block_size = (num_tiles + 31) / 32;
         size_t temp_size = get_temp_storage_size<T>(num_items);
-        scan_do_init<T><<<init_block_size, 32, 0, cudaStream>>>(temp_storage, num_tiles, temp_size);
+        size_t  allocation_sizes[1];
+        ScanTileStatusT::AllocationSize(num_tiles, allocation_sizes[0]);
+        void* allocations[1] = {};
+        size_t temp_storage_bytes;
+        CUB_NS_QUALIFIER::AliasTemporaries(d_temp_storage, temp_storage_bytes, allocations, allocation_sizes);
+        scan_do_init<T><<<init_block_size, 32, 0, cudaStream>>>(allocations[0], num_tiles, temp_size);
 
-        scan_do_kernel<T> <<<num_tiles, SCAN_BLOCK_SIZE, 0, cudaStream>>>(temp_storage, d_in, d_out,
+        scan_do_kernel<T> <<<num_tiles, SCAN_BLOCK_SIZE, 0, cudaStream>>>(allocations[0], d_in, d_out,
                                                                           num_items, num_tiles, temp_size);
 
 
