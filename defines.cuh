@@ -1,7 +1,7 @@
 //
 // Created by yxgao on 2022/2/28.
 //
-#include "cub_origin/cub.cuh"
+#include "cub_full/cub/cub.cuh"
 
 #if (__CUDACC_VER_MAJOR__ >= 9 || CUDA_VERSION >= 9000) && !_NVHPC_CUDA
 
@@ -22,29 +22,6 @@
      CUDA_VERSION >= 9000) && \
   !defined(CUB_USE_COOPERATIVE_GROUPS)
 #define CUB_USE_COOPERATIVE_GROUPS
-#endif
-
-#ifndef CUB_LOG_WARP_THREADS
-#define CUB_LOG_WARP_THREADS(arch)                      \
-        (5)
-#define CUB_WARP_THREADS(arch)                          \
-        (1 << CUB_LOG_WARP_THREADS(arch))
-
-#define CUB_PTX_WARP_THREADS        CUB_WARP_THREADS(CUB_PTX_ARCH)
-#define CUB_PTX_LOG_WARP_THREADS    CUB_LOG_WARP_THREADS(CUB_PTX_ARCH)
-#endif
-
-#ifndef CUB_PTX_ARCH
-#if defined(_NVHPC_CUDA)
-// __NVCOMPILER_CUDA_ARCH__ is the target PTX version, and is defined
-        // when compiling both host code and device code. Currently, only one
-        // PTX version can be targeted.
-#define CUB_PTX_ARCH __NVCOMPILER_CUDA_ARCH__
-#elif !defined(__CUDA_ARCH__)
-#define CUB_PTX_ARCH 0
-#else
-#define CUB_PTX_ARCH __CUDA_ARCH__
-#endif
 #endif
 
 namespace scan {

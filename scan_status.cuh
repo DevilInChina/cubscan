@@ -119,7 +119,7 @@ namespace scan{
 
             TxnWord alias;
             *reinterpret_cast<TileDescriptor*>(&alias) = tile_descriptor;
-            origin_cub::ThreadStore<origin_cub::STORE_CG>(d_tile_descriptors + TILE_STATUS_PADDING + tile_idx, alias);
+            CUB_NS_QUALIFIER::ThreadStore<CUB_NS_QUALIFIER::STORE_CG>(d_tile_descriptors + TILE_STATUS_PADDING + tile_idx, alias);
         }
 
 
@@ -134,7 +134,7 @@ namespace scan{
 
             TxnWord alias;
             *reinterpret_cast<TileDescriptor*>(&alias) = tile_descriptor;
-            origin_cub::ThreadStore<origin_cub::STORE_CG>(d_tile_descriptors + TILE_STATUS_PADDING + tile_idx, alias);
+            CUB_NS_QUALIFIER::ThreadStore<CUB_NS_QUALIFIER::STORE_CG>(d_tile_descriptors + TILE_STATUS_PADDING + tile_idx, alias);
         }
 
         /**
@@ -149,10 +149,10 @@ namespace scan{
             do
             {
                 __threadfence_block(); // prevent hoisting loads from loop
-                TxnWord alias = origin_cub::ThreadLoad<origin_cub::LOAD_CG>(d_tile_descriptors + TILE_STATUS_PADDING + tile_idx);
+                TxnWord alias = CUB_NS_QUALIFIER::ThreadLoad<CUB_NS_QUALIFIER::LOAD_CG>(d_tile_descriptors + TILE_STATUS_PADDING + tile_idx);
                 tile_descriptor = reinterpret_cast<TileDescriptor&>(alias);
 
-            } while (origin_cub::WARP_ANY((tile_descriptor.status == SCAN_TILE_INVALID), 0xffffffff));
+            } while (CUB_NS_QUALIFIER::WARP_ANY((tile_descriptor.status == SCAN_TILE_INVALID), 0xffffffff));
 
             status = tile_descriptor.status;
             value = tile_descriptor.value;
@@ -200,11 +200,11 @@ namespace scan{
                 size_t  allocation_sizes[3];
 
                 allocation_sizes[0] = (num_tiles + TILE_STATUS_PADDING) * sizeof(StatusWord);           // bytes needed for tile status descriptors
-                allocation_sizes[1] = (num_tiles + TILE_STATUS_PADDING) * sizeof(origin_cub::Uninitialized<T>);     // bytes needed for partials
-                allocation_sizes[2] = (num_tiles + TILE_STATUS_PADDING) * sizeof(origin_cub::Uninitialized<T>);     // bytes needed for inclusives
+                allocation_sizes[1] = (num_tiles + TILE_STATUS_PADDING) * sizeof(CUB_NS_QUALIFIER::Uninitialized<T>);     // bytes needed for partials
+                allocation_sizes[2] = (num_tiles + TILE_STATUS_PADDING) * sizeof(CUB_NS_QUALIFIER::Uninitialized<T>);     // bytes needed for inclusives
 
                 // Compute allocation pointers into the single storage blob
-                if (CubDebug(error = origin_cub::AliasTemporaries(d_temp_storage, temp_storage_bytes, allocations, allocation_sizes))) break;
+                if (CubDebug(error = CUB_NS_QUALIFIER::AliasTemporaries(d_temp_storage, temp_storage_bytes, allocations, allocation_sizes))) break;
 
                 // Alias the offsets
                 d_tile_status       = reinterpret_cast<StatusWord*>(allocations[0]);
@@ -228,12 +228,12 @@ namespace scan{
             // Specify storage allocation requirements
             size_t  allocation_sizes[3];
             allocation_sizes[0] = (num_tiles + TILE_STATUS_PADDING) * sizeof(StatusWord);         // bytes needed for tile status descriptors
-            allocation_sizes[1] = (num_tiles + TILE_STATUS_PADDING) * sizeof(origin_cub::Uninitialized<T>);   // bytes needed for partials
-            allocation_sizes[2] = (num_tiles + TILE_STATUS_PADDING) * sizeof(origin_cub::Uninitialized<T>);   // bytes needed for inclusives
+            allocation_sizes[1] = (num_tiles + TILE_STATUS_PADDING) * sizeof(CUB_NS_QUALIFIER::Uninitialized<T>);   // bytes needed for partials
+            allocation_sizes[2] = (num_tiles + TILE_STATUS_PADDING) * sizeof(CUB_NS_QUALIFIER::Uninitialized<T>);   // bytes needed for inclusives
 
             // Set the necessary size of the blob
             void* allocations[3] = {};
-            return CubDebug(origin_cub::AliasTemporaries(NULL, temp_storage_bytes, allocations, allocation_sizes));
+            return CubDebug(CUB_NS_QUALIFIER::AliasTemporaries(NULL, temp_storage_bytes, allocations, allocation_sizes));
         }
 
 
@@ -263,13 +263,13 @@ namespace scan{
         __device__ __forceinline__ void SetInclusive(int tile_idx, T tile_inclusive)
         {
             // Update tile inclusive value
-            origin_cub::ThreadStore<origin_cub::STORE_CG>(d_tile_inclusive + TILE_STATUS_PADDING + tile_idx, tile_inclusive);
+            CUB_NS_QUALIFIER::ThreadStore<CUB_NS_QUALIFIER::STORE_CG>(d_tile_inclusive + TILE_STATUS_PADDING + tile_idx, tile_inclusive);
 
             // Fence
             __threadfence();
 
             // Update tile status
-            origin_cub::ThreadStore<origin_cub::STORE_CG>(d_tile_status + TILE_STATUS_PADDING + tile_idx, StatusWord(SCAN_TILE_INCLUSIVE));
+            CUB_NS_QUALIFIER::ThreadStore<CUB_NS_QUALIFIER::STORE_CG>(d_tile_status + TILE_STATUS_PADDING + tile_idx, StatusWord(SCAN_TILE_INCLUSIVE));
         }
 
 
@@ -279,13 +279,13 @@ namespace scan{
         __device__ __forceinline__ void SetPartial(int tile_idx, T tile_partial)
         {
             // Update tile partial value
-            origin_cub::ThreadStore<origin_cub::STORE_CG>(d_tile_partial + TILE_STATUS_PADDING + tile_idx, tile_partial);
+            CUB_NS_QUALIFIER::ThreadStore<CUB_NS_QUALIFIER::STORE_CG>(d_tile_partial + TILE_STATUS_PADDING + tile_idx, tile_partial);
 
             // Fence
             __threadfence();
 
             // Update tile status
-            origin_cub::ThreadStore<origin_cub::STORE_CG>(d_tile_status + TILE_STATUS_PADDING + tile_idx, StatusWord(SCAN_TILE_PARTIAL));
+            CUB_NS_QUALIFIER::ThreadStore<CUB_NS_QUALIFIER::STORE_CG>(d_tile_status + TILE_STATUS_PADDING + tile_idx, StatusWord(SCAN_TILE_PARTIAL));
         }
 
         /**
@@ -297,16 +297,16 @@ namespace scan{
                 T               &value)
         {
             do {
-                status = origin_cub::ThreadLoad<origin_cub::LOAD_CG>(d_tile_status + TILE_STATUS_PADDING + tile_idx);
+                status = CUB_NS_QUALIFIER::ThreadLoad<CUB_NS_QUALIFIER::LOAD_CG>(d_tile_status + TILE_STATUS_PADDING + tile_idx);
 
                 __threadfence();    // prevent hoisting loads from loop or loads below above this one
 
             } while (status == SCAN_TILE_INVALID);
 
             if (status == StatusWord(SCAN_TILE_PARTIAL))
-                value = origin_cub::ThreadLoad<origin_cub::LOAD_CG>(d_tile_partial + TILE_STATUS_PADDING + tile_idx);
+                value = CUB_NS_QUALIFIER::ThreadLoad<CUB_NS_QUALIFIER::LOAD_CG>(d_tile_partial + TILE_STATUS_PADDING + tile_idx);
             else
-                value = origin_cub::ThreadLoad<origin_cub::LOAD_CG>(d_tile_inclusive + TILE_STATUS_PADDING + tile_idx);
+                value = CUB_NS_QUALIFIER::ThreadLoad<CUB_NS_QUALIFIER::LOAD_CG>(d_tile_inclusive + TILE_STATUS_PADDING + tile_idx);
         }
     };
 
