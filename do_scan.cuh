@@ -3,7 +3,6 @@
 //
 #include "block_scan.cuh"
 #include "warp_reduce_shfl.cuh"
-#include "scan_status.cuh"
 
 #ifndef CUBSCAN_DO_SCAN_CUH
 #define CUBSCAN_DO_SCAN_CUH
@@ -25,21 +24,74 @@ namespace scan {
         return temp_storage_bytes;
     }
 
-    template<typename T, typename ScanTileStatusT = CUB_NS_QUALIFIER::ScanTileState<T>>
+    template<typename T, typename ScanTileStatusT>
     __global__ void scan_do_init(void *temp_storage, int num_tiles, size_t temp_size) {
-        unsigned int tid = blockDim.x * blockIdx.x + threadIdx.x;
         ScanTileStatusT ss;
         ss.Init(num_tiles, temp_storage, temp_size);
 
         ss.InitializeStatus(num_tiles);
     }
 
-    template<typename T, typename ScanTileStatusT = CUB_NS_QUALIFIER::ScanTileState<T>>
+    template<typename T, typename ScanTileStatusT>
     struct scan_block {
         ScanTileStatusT scanTileStatusT;
         using status_words = typename ScanTileStatusT::StatusWord;
 
-        __device__ __forceinline__ scan_block(void *temp_storage, int num_tiles, size_t temp_size) {
+        using ScanOpT = CUB_NS_QUALIFIER::Sum;
+        typedef typename CUB_NS_QUALIFIER::BlockScan<T, SCAN_BLOCK_SIZE, CUB_NS_QUALIFIER::BLOCK_SCAN_WARP_SCANS> BlockScanT;
+
+        using OutputT = T;
+        using TilePrefixCallbackOpT = CUB_NS_QUALIFIER::TilePrefixCallbackOp<
+                OutputT,
+                ScanOpT,
+                ScanTileStatusT>;
+
+        enum {
+            ITEMS_PER_THREAD = SCAN_ITEM_PER_BLOCK
+        };
+
+        typedef CUB_NS_QUALIFIER::BlockLoad<
+                OutputT,
+                SCAN_BLOCK_SIZE,
+                SCAN_ITEM_PER_BLOCK,
+                CUB_NS_QUALIFIER::BLOCK_LOAD_DIRECT>
+                BlockLoadT;
+
+        // Parameterized BlockStore type
+        typedef CUB_NS_QUALIFIER::BlockStore<
+                OutputT,
+                SCAN_BLOCK_SIZE,
+                SCAN_ITEM_PER_BLOCK,
+                CUB_NS_QUALIFIER::BLOCK_STORE_WARP_TRANSPOSE>
+                BlockStoreT;
+        union _TempStorage {
+            typename BlockLoadT::TempStorage load;       // Smem needed for tile loading
+            typename BlockStoreT::TempStorage store;      // Smem needed for tile storing
+
+            struct ScanStorage {
+                typename TilePrefixCallbackOpT::TempStorage prefix;     // Smem needed for cooperative prefix callback
+                typename BlockScanT::TempStorage scan;       // Smem needed for tile scanning
+            } scan_storage;
+        };
+
+        // Alias wrapper allowing storage to be unioned
+        struct TempStorage : CUB_NS_QUALIFIER::Uninitialized<_TempStorage> {
+        };
+
+
+        //---------------------------------------------------------------------
+        // Per-thread fields
+        //---------------------------------------------------------------------
+
+        _TempStorage &temp_storage;       ///< Reference to temp_storage
+
+        __device__ __forceinline__ _TempStorage &PrivateStorage() {
+            __shared__ _TempStorage private_storage;
+            return private_storage;
+        }
+
+        __device__ __forceinline__ scan_block(
+                void *temp_storage, int num_tiles, size_t temp_size) : temp_storage(PrivateStorage()) {
             scanTileStatusT.Init(num_tiles, temp_storage, temp_size);
         }
 
@@ -133,119 +185,150 @@ namespace scan {
             return inclusive;
         }
 
-        using OutputT = T;
-        enum {
-            ITEMS_PER_THREAD = SCAN_ITEM_PER_BLOCK
-        };
-        using ScanOpT = CUB_NS_QUALIFIER::Sum;
-        typedef typename CUB_NS_QUALIFIER::BlockScan<T,SCAN_BLOCK_SIZE,CUB_NS_QUALIFIER::BLOCK_SCAN_WARP_SCANS>  BlockScanT;
         /**
          * Exclusive scan specialization (first tile)
          */
-         struct ScanTileT {
-             typename BlockScanT::TempStorage &temp_storage;
-             __device__ __forceinline__
-             void ScanTile(
-                     OutputT             (&items)[ITEMS_PER_THREAD],
-                     OutputT init_value,
-                     ScanOpT scan_op,
-                     OutputT &block_aggregate,
-                     Int2Type<false>     /*is_inclusive*/) {
-                 BlockScanT(temp_storage.scan_storage.scan).ExclusiveScan(items, items, init_value, scan_op,
-                                                                          block_aggregate);
-                 block_aggregate = scan_op(init_value, block_aggregate);
-             }
+
+        __device__ __forceinline__
+        void ScanTile(
+                OutputT             (&items)[ITEMS_PER_THREAD],
+                OutputT init_value,
+                ScanOpT scan_op,
+                OutputT &block_aggregate,
+                Int2Type<false>     /*is_inclusive*/) {
+            BlockScanT(temp_storage.scan_storage.scan).ExclusiveScan(items, items, init_value, scan_op,
+                                                                     block_aggregate);
+            block_aggregate = scan_op(init_value, block_aggregate);
+        }
 
 
-             /**
-              * Inclusive scan specialization (first tile)
-              */
-             __device__ __forceinline__
-             void ScanTile(
-                     OutputT             (&items)[ITEMS_PER_THREAD],
-                     ScanOpT scan_op,
-                     OutputT &block_aggregate,
-                     Int2Type<true>      /*is_inclusive*/) {
-                 BlockScanT(temp_storage.scan_storage.scan).InclusiveScan(items, items, scan_op, block_aggregate);
-             }
+        /**
+         * Inclusive scan specialization (first tile)
+         */
+        __device__ __forceinline__
+        void ScanTile(
+                OutputT             (&items)[ITEMS_PER_THREAD],
+                ScanOpT scan_op,
+                OutputT &block_aggregate,
+                Int2Type<true>      /*is_inclusive*/) {
+            BlockScanT(temp_storage.scan_storage.scan).InclusiveScan(items, items, scan_op, block_aggregate);
+        }
 
 
-             /**
-              * Exclusive scan specialization (subsequent tiles)
-              */
-             template<typename PrefixCallback>
-             __device__ __forceinline__
-             void ScanTile(
-                     OutputT             (&items)[ITEMS_PER_THREAD],
-                     ScanOpT scan_op,
-                     PrefixCallback &prefix_op,
-                     Int2Type<false>     /*is_inclusive*/) {
-                 BlockScanT(temp_storage.scan_storage.scan).ExclusiveScan(items, items, scan_op, prefix_op);
-             }
+        /**
+         * Exclusive scan specialization (subsequent tiles)
+         */
+        template<typename PrefixCallback>
+        __device__ __forceinline__
+        void ScanTile(
+                OutputT             (&items)[ITEMS_PER_THREAD],
+                ScanOpT scan_op,
+                PrefixCallback &prefix_op,
+                Int2Type<false>     /*is_inclusive*/) {
+            BlockScanT(temp_storage.scan_storage.scan).ExclusiveScan(items, items, scan_op, prefix_op);
+        }
 
 
-             /**
-              * Inclusive scan specialization (subsequent tiles)
-              */
-             template<typename PrefixCallback>
-             __device__ __forceinline__
-             void ScanTile(
-                     OutputT             (&items)[ITEMS_PER_THREAD],
-                     ScanOpT scan_op,
-                     PrefixCallback &prefix_op,
-                     Int2Type<true>      /*is_inclusive*/) {
-                 BlockScanT(temp_storage.scan_storage.scan).InclusiveScan(items, items, scan_op, prefix_op);
-             }
-         };
+        /**
+         * Inclusive scan specialization (subsequent tiles)
+         */
+        template<typename PrefixCallback>
+        __device__ __forceinline__
+        void ScanTile(
+                OutputT             (&items)[ITEMS_PER_THREAD],
+                ScanOpT scan_op,
+                PrefixCallback &prefix_op,
+                Int2Type<true>      /*is_inclusive*/) {
+            BlockScanT(temp_storage.scan_storage.scan).InclusiveScan(items, items, scan_op, prefix_op);
+        }
 
         __device__ __forceinline__ void
-        ExclusiveScan(T d_inputs[SCAN_ITEM_PER_BLOCK], T d_outpus[SCAN_ITEM_PER_BLOCK]) {
+        ExclusiveScan(OutputT             (&d_inputs)[ITEMS_PER_THREAD]) {
             unsigned int tile_idx = blockIdx.x;
-            T block_aggregate;
-
-            __shared__ typename BlockScanT::TempStorage tempStorage;
-            BlockScanT ss(tempStorage);
             CUB_NS_QUALIFIER::Sum scan_op;
-            Int2Type<SCAN_ITEM_PER_BLOCK> teet;
-            T d_in = ThreadReduce<SCAN_ITEM_PER_BLOCK, CUB_NS_QUALIFIER::Sum>(d_inputs, scan_op, 0,
-                                                                              teet), exclusive_output;
-
-            /// load
-            ss.ExclusiveSum(d_in, exclusive_output, block_aggregate);
-            //scan::BlockScanWarpScans<T, SCAN_BLOCK_SIZE, 1, 1, CUB_PTX_ARCH>().ExclusiveScan(d_in, exclusive_output,block_aggregate);
-            __shared__ T data_pref;
-            if (blockIdx.x == 0) {
-                if (threadIdx.x == 0) {
+            // Perform tile scan
+            if (tile_idx == 0) {
+                // Scan first tile
+                OutputT block_aggregate;
+                ScanTile(d_inputs, scan_op, block_aggregate, Int2Type<false>());
+                if ((threadIdx.x == 0))
                     scanTileStatusT.SetInclusive(0, block_aggregate);
-                    data_pref = 0;
-                }
-
-            } else if (threadIdx.x < SCAN_WARP_SIZE) { /// warp id 0
-                T block_prefix = get_block_aggregate(block_aggregate, tile_idx);
-                if (threadIdx.x % SCAN_WARP_SIZE == 0) {/// lane id 0
-                    // Share the prefix with all threads
-                    data_pref = block_prefix;
-                    exclusive_output = block_prefix;                // The block prefix is the exclusive output for tid0
-                }
+            } else {
+                // Scan non-first tile
+                TilePrefixCallbackOpT prefix_op(scanTileStatusT, temp_storage.scan_storage.prefix, scan_op, tile_idx);
+                ScanTile(d_inputs, scan_op, prefix_op, Int2Type<false>());
             }
-            __syncthreads();
+            /// load
 
-            T block_prefix = data_pref;
-            if (threadIdx.x > 0) {
-                exclusive_output = block_prefix + exclusive_output;
-            }
-
-            __syncthreads();
-            ThreadScanExclusive<SCAN_ITEM_PER_BLOCK, CUB_NS_QUALIFIER::Sum>(d_in, exclusive_output, d_inputs, d_outpus,
-                                                                            scan_op, Int2Type<SCAN_ITEM_PER_BLOCK>());
 
             /// store
         }
+
+        __device__ __forceinline__
+        void ExclusiveScan_AgentScan(T *d_in, T *d_out, int num_items, int num_tiles) {
+            using InitValueT = CUB_NS_QUALIFIER::detail::InputValue<T>;
+            using RealInitValueT = typename InitValueT::value_type;
+            typedef typename CUB_NS_QUALIFIER::AgentScan<
+                    typename CUB_NS_QUALIFIER::DeviceScanPolicy<T>::Policy520::ScanPolicyT,
+                    T *,
+                    T *,
+                    CUB_NS_QUALIFIER::Sum,
+                    RealInitValueT,
+                    int> AgentScanT;
+            __shared__ typename AgentScanT::TempStorage temp_storage;
+            T init_value = 0;
+            RealInitValueT real_init_value = CUB_NS_QUALIFIER::detail::InputValue<T>(init_value);
+            CUB_NS_QUALIFIER::Sum scan_op;
+            AgentScanT temp(temp_storage, d_in, d_out, scan_op, real_init_value);
+            temp.ConsumeRange(
+                    num_items,
+                    scanTileStatusT,
+                    0);
+
+        };
+
+        __device__ __forceinline__
+        void ExclusiveScan(T *d_in, T *d_out, int num_items, int num_tiles) { /// consume range
+
+
+
+            int item_idx = blockDim.x * blockIdx.x + threadIdx.x;
+            T items[SCAN_ITEM_PER_BLOCK];
+            int tile_offset = SCAN_TILE_SIZE * blockIdx.x;
+
+            int num_remaining = num_items - tile_offset;          // Remaining items (including this tile)
+            if (blockIdx.x == num_tiles - 1) {
+                // Fill last element with the first element because collectives are
+                // not suffix guarded.
+                BlockLoadT(temp_storage.load)
+                        .Load(d_in + tile_offset,
+                              items,
+                              num_remaining,
+                              *(d_in + tile_offset));
+            } else {
+                BlockLoadT(temp_storage.load).Load(d_in + tile_offset, items);
+            }
+            __syncthreads();
+            ExclusiveScan(items);
+            __syncthreads();
+
+
+            // Store items
+            if (blockIdx.x == num_tiles - 1)
+                BlockStoreT(temp_storage.store).Store(d_out + tile_offset, items, num_remaining);
+            else
+                BlockStoreT(temp_storage.store).Store(d_out + tile_offset, items);
+        }
+
     };
 
-    template<typename T>
+    template<typename T, typename ScanTileStatusT>
     __global__ void
-    scan_do_kernel(void *temp_storage, T *d_in, T *d_out, int num_items, int num_tiles, size_t temp_size) {
+    scan_do_kernel(void *d_temp_storage, T *d_in, T *d_out, int num_items, int num_tiles, size_t temp_size) {
+
+        scan_block<T, ScanTileStatusT> ss(d_temp_storage, num_tiles, temp_size);
+        ss.ExclusiveScan(d_in, d_out, num_items, num_tiles);
+        /*
         int item_idx = blockDim.x * blockIdx.x + threadIdx.x;
         T d_inputs[SCAN_ITEM_PER_BLOCK];
         T d_outputs[SCAN_ITEM_PER_BLOCK];
@@ -259,38 +342,40 @@ namespace scan {
             }
         }
 
-        scan_block<T> ss(temp_storage, num_tiles, temp_size);
-        ss.ExclusiveScan(d_inputs, d_outputs);
+        scan_block<T, ScanTileStatusT> ss(d_temp_storage, num_tiles, temp_size);
+        ss.ExclusiveScan(d_inputs);
 
         if (blockIdx.x == num_tiles - 1)
 #pragma unroll
             for (int i = 0; i < SCAN_ITEM_PER_BLOCK; ++i) {
                 if (i + begin_idx < num_items)
-                    d_out[i + begin_idx] = d_outputs[i];
+                    d_out[i + begin_idx] = d_inputs[i];
             }
         else {
 #pragma unroll
             for (int i = 0; i < SCAN_ITEM_PER_BLOCK; ++i) {
-                d_out[i + begin_idx] = d_outputs[i];
+                d_out[i + begin_idx] = d_inputs[i];
             }
-        }
+        }*/
     }
 
 
-    template<typename T, typename ScanTileStatusT = CUB_NS_QUALIFIER::ScanTileState<T> >
+    template<typename T>
     void ExclusiveScan(void *d_temp_storage, T *d_in, T *d_out, int num_items, cudaStream_t cudaStream) {
         unsigned int num_tiles = (num_items + SCAN_TILE_SIZE - 1) / SCAN_TILE_SIZE;
         unsigned int init_block_size = (num_tiles + 31) / 32;
         size_t temp_size = get_temp_storage_size<T>(num_items);
         size_t allocation_sizes[1];
+        using ScanTileStatusT = CUB_NS_QUALIFIER::ScanTileState<T>;
         ScanTileStatusT::AllocationSize(num_tiles, allocation_sizes[0]);
         void *allocations[1] = {};
         size_t temp_storage_bytes;
         CUB_NS_QUALIFIER::AliasTemporaries(d_temp_storage, temp_storage_bytes, allocations, allocation_sizes);
-        scan_do_init<T><<<init_block_size, 32, 0, cudaStream>>>(allocations[0], num_tiles, temp_size);
+        scan_do_init<T, ScanTileStatusT><<<init_block_size, 32, 0, cudaStream>>>(allocations[0], num_tiles, temp_size);
 
-        scan_do_kernel<T> <<<num_tiles, SCAN_BLOCK_SIZE, 0, cudaStream>>>(allocations[0], d_in, d_out,
-                                                                          num_items, num_tiles, temp_size);
+        scan_do_kernel<T, ScanTileStatusT> <<<num_tiles, SCAN_BLOCK_SIZE, 0, cudaStream>>>(allocations[0], d_in, d_out,
+                                                                                           num_items, num_tiles,
+                                                                                           temp_size);
 
 
     }
