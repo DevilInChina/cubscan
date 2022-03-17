@@ -19,8 +19,8 @@ namespace scan {
         ScanTileStatusT::AllocationSize(num_tiles, ret);
         size_t temp_storage_bytes;
 
-        size_t  allocation_sizes[1] = {ret};
-        void* allocations[1] = {};
+        size_t allocation_sizes[1] = {ret};
+        void *allocations[1] = {};
         CUB_NS_QUALIFIER::AliasTemporaries(nullptr, temp_storage_bytes, allocations, allocation_sizes);
         return temp_storage_bytes;
     }
@@ -158,7 +158,6 @@ namespace scan {
         scan_block<T> ss(temp_storage, num_tiles, temp_size);
         ss.ExclusiveScan(d_input, d_output);
 
-
         d_input = d_inputs[0];
         d_inputs[0] = d_output;
 #pragma unroll
@@ -167,10 +166,32 @@ namespace scan {
             d_inputs[i] = d_input + d_inputs[i - 1];
             d_input = new_val;
         }
+        
+        __shared__ T buff[SCAN_TILE_SIZE];
+        const int warp_offset = (threadIdx.x >> 5 << 5) * 12;
+        const int lane_id = (threadIdx.x & 31);
 #pragma unroll
-        for (int i = 0; i < SCAN_ITEM_PER_BLOCK; ++i) {
-            if (i + begin_idx < num_items)
-                d_out[i + begin_idx] = d_inputs[i];
+        for (int ITEM = 0; ITEM < SCAN_ITEM_PER_BLOCK; ITEM++) {
+            int item_offset = warp_offset + ITEM + (lane_id * SCAN_ITEM_PER_BLOCK);
+            buff[item_offset] = d_inputs[ITEM];
+        }
+
+        __syncwarp(0xffffffff);
+
+#pragma unroll
+        for (int ITEM = 0; ITEM < SCAN_ITEM_PER_BLOCK; ITEM++) {
+            int item_offset = warp_offset + (ITEM * 32) + lane_id;
+            d_inputs[ITEM] = buff[item_offset];
+        }
+
+        T *thread_itr = d_out + warp_offset + (threadIdx.x & 31) + blockIdx.x * SCAN_TILE_SIZE;
+
+        // Store directly in warp-striped order
+#pragma unroll
+        for (int ITEM = 0; ITEM < SCAN_ITEM_PER_BLOCK; ITEM++) {
+            if (warp_offset + (threadIdx.x & 31) + (ITEM << 5) + blockIdx.x * SCAN_TILE_SIZE < num_items) {
+                thread_itr[(ITEM << 5)] = d_inputs[ITEM];
+            }
         }
     }
 
@@ -180,9 +201,9 @@ namespace scan {
         unsigned int num_tiles = (num_items + SCAN_TILE_SIZE - 1) / SCAN_TILE_SIZE;
         unsigned int init_block_size = (num_tiles + 31) / 32;
         size_t temp_size = get_temp_storage_size<T>(num_items);
-        size_t  allocation_sizes[1];
+        size_t allocation_sizes[1];
         ScanTileStatusT::AllocationSize(num_tiles, allocation_sizes[0]);
-        void* allocations[1] = {};
+        void *allocations[1] = {};
         size_t temp_storage_bytes;
         CUB_NS_QUALIFIER::AliasTemporaries(d_temp_storage, temp_storage_bytes, allocations, allocation_sizes);
         scan_do_init<T><<<init_block_size, 32, 0, cudaStream>>>(allocations[0], num_tiles, temp_size);
