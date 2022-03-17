@@ -139,15 +139,28 @@ namespace scan {
     scan_do_kernel(void *temp_storage, T *d_in, T *d_out, int num_items, int num_tiles, size_t temp_size) {
         int item_idx = blockDim.x * blockIdx.x + threadIdx.x;
         T d_inputs[SCAN_ITEM_PER_BLOCK];
+        __shared__ T buff[SCAN_TILE_SIZE];
+        const int warp_offset = (threadIdx.x >> 5 << 5) * SCAN_ITEM_PER_BLOCK;
+        const int full_data_offset = warp_offset + (threadIdx.x & 31) + blockIdx.x * SCAN_TILE_SIZE;
         int begin_idx = SCAN_ITEM_PER_BLOCK * item_idx;
+        T *thread_itr = d_in + full_data_offset;
+        const int lane_id = (threadIdx.x & 31);
+
 #pragma unroll
-        for (int i = 0; i < SCAN_ITEM_PER_BLOCK; ++i) {
-            if (i + begin_idx < num_items) {
-                d_inputs[i] = d_in[begin_idx + i];
+        for (int ITEM = 0; ITEM < SCAN_ITEM_PER_BLOCK; ITEM++) {
+            int item_offset = warp_offset + (ITEM << 5) + lane_id;
+            if (full_data_offset + (ITEM << 5) < num_items) {
+                buff[item_offset] = thread_itr[(ITEM << 5)];
             } else {
-                d_inputs[i] = 0;
+                buff[item_offset] = 0;
             }
         }
+        __syncwarp(0xFFFFFFFF);
+#pragma unroll
+        for (int ITEM = 0; ITEM < SCAN_ITEM_PER_BLOCK; ITEM++) {
+            int item_offset = warp_offset + ITEM + (lane_id * SCAN_ITEM_PER_BLOCK);
+            d_inputs[ITEM] = buff[item_offset];
+        }/// transpose
 
         T d_input = 0, d_output;
 #pragma unroll
@@ -166,33 +179,24 @@ namespace scan {
             d_inputs[i] = d_input + d_inputs[i - 1];
             d_input = new_val;
         }
-        
-        __shared__ T buff[SCAN_TILE_SIZE];
-        const int warp_offset = (threadIdx.x >> 5 << 5) * 12;
-        const int lane_id = (threadIdx.x & 31);
+
 #pragma unroll
         for (int ITEM = 0; ITEM < SCAN_ITEM_PER_BLOCK; ITEM++) {
             int item_offset = warp_offset + ITEM + (lane_id * SCAN_ITEM_PER_BLOCK);
             buff[item_offset] = d_inputs[ITEM];
-        }
+        }/// transpose
 
         __syncwarp(0xffffffff);
 
+        thread_itr = d_out + full_data_offset;
 #pragma unroll
         for (int ITEM = 0; ITEM < SCAN_ITEM_PER_BLOCK; ITEM++) {
-            int item_offset = warp_offset + (ITEM * 32) + lane_id;
-            d_inputs[ITEM] = buff[item_offset];
-        }
-
-        T *thread_itr = d_out + warp_offset + (threadIdx.x & 31) + blockIdx.x * SCAN_TILE_SIZE;
-
-        // Store directly in warp-striped order
-#pragma unroll
-        for (int ITEM = 0; ITEM < SCAN_ITEM_PER_BLOCK; ITEM++) {
-            if (warp_offset + (threadIdx.x & 31) + (ITEM << 5) + blockIdx.x * SCAN_TILE_SIZE < num_items) {
-                thread_itr[(ITEM << 5)] = d_inputs[ITEM];
+            int item_offset = warp_offset + (ITEM << 5) + lane_id;
+            if (full_data_offset + (ITEM << 5) < num_items) {
+                thread_itr[(ITEM << 5)] = buff[item_offset];
             }
         }
+
     }
 
 
