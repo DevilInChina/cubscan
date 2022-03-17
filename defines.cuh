@@ -1,7 +1,7 @@
 //
 // Created by yxgao on 2022/2/28.
 //
-#include "cub_full/cub/cub.cuh"
+#include "cub_origin/cub.cuh"
 
 #if (__CUDACC_VER_MAJOR__ >= 9 || CUDA_VERSION >= 9000) && !_NVHPC_CUDA
 
